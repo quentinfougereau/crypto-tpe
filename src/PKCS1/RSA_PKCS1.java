@@ -1,6 +1,9 @@
 package PKCS1;// -*- coding: utf-8 -*-
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Random;
 
 public class RSA_PKCS1 {
@@ -61,8 +64,35 @@ public class RSA_PKCS1 {
         //------------------------------------------------------------------
         //  Décodage de l'entier représentatif
         //------------------------------------------------------------------
-        byte[] chiffré = c.toByteArray(); 
+        byte[] chiffré = c.toByteArray();
+        chiffré = longueur128Bytes(chiffré);
         System.out.println("Message chiffré    : " + toHex(chiffré) );
+
+        //------------------------------------------------------------------
+        // Déchiffrement du message (c)
+        //------------------------------------------------------------------
+        BigInteger m_dechiffre = c.modPow(d, n);
+        System.out.println("c^d mod n = " + m_dechiffre + " ("+c.bitLength()+" bits)");
+
+        //------------------------------------------------------------------
+        //  Décodage du message déchiffré
+        //------------------------------------------------------------------
+        byte[] m_dechiffre_bytes = m_dechiffre.toByteArray();
+        System.out.println("Message déchiffré    : " + toHex(m_dechiffre_bytes) );
+
+        //------------------------------------------------------------------
+        //  Débourrage du message déchiffré
+        //------------------------------------------------------------------
+        System.out.println("Message déchiffré débourré    : " + toHex(debourragePKCS1(m_dechiffre_bytes)) );
+
+        System.out.println("");
+        System.out.println("------------------------------------------------------------------");
+        System.out.println("OAEP avec SHA-1");
+        System.out.println("------------------------------------------------------------------");
+        System.out.println("");
+
+        byte[] bloc = fabriqueBloc(m);
+        System.out.println("BLOC : " + toHex(bloc));
     }
     
     public static String toHex(byte[] données) {
@@ -86,6 +116,70 @@ public class RSA_PKCS1 {
         }
         return res;
     }
+
+    public static byte[] debourragePKCS1(byte[] em) {
+        ByteArrayOutputStream res = new ByteArrayOutputStream();
+        for (int i = em.length - 1; i >= 0; i--) {
+            if (em[i] == 0x00)
+                break;
+            res.write(em[i]);
+        }
+        return reverseBytes(res.toByteArray());
+    }
+
+    public static byte[] reverseBytes(byte[] bytes) {
+        byte[] res = new byte[bytes.length];
+        for (int i = bytes.length - 1; i >= 0; i--) {
+            res[(bytes.length - 1) - i] = bytes[i];
+        }
+        return res;
+    }
+
+    public static byte[] longueur128Bytes(byte[] bytes) {
+        byte[] res = new byte[128];
+        if (bytes.length > 128) {
+            System.arraycopy(bytes, 1, res, 0, res.length);
+        } else if (bytes.length == 128) {
+            return bytes;
+        }
+        return res;
+    }
+
+    /*
+    Concatène deux tableaux d'octets
+    */
+    public static byte[] bytesConcat(byte[] first, byte[] second) {
+        byte[] res = new byte[first.length + second.length];
+        System.arraycopy(first, 0, res, 0, first.length);
+        System.arraycopy(second, 0, res, first.length, second.length);
+        return res;
+    }
+
+    public static byte[] fabriqueBloc(byte[] m) {
+        byte[] sha1 = sha1();
+        int nbOctetsNuls = 107 - (sha1.length + m.length + 1); // Calcul de la suite d'octets nuls (PS)
+        byte[] ps = new byte[nbOctetsNuls];
+        for (int i = 0; i < nbOctetsNuls; i++) {
+            ps[i] = 0x00;
+        }
+        byte[] tmp = bytesConcat(sha1, ps);
+        byte[] tmp2 = new byte[tmp.length+1];
+        System.arraycopy(tmp, 0, tmp2, 0, tmp.length);
+        tmp2[tmp.length] = 0x01;
+        return bytesConcat(tmp2, m);
+    }
+
+    public static byte[] sha1() {
+        MessageDigest msdDigest = null;
+        try {
+            msdDigest = MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        msdDigest.update("".getBytes());
+        return msdDigest.digest();
+    }
+
 }
 
 /*
