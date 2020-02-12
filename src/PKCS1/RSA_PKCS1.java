@@ -1,6 +1,8 @@
 package PKCS1;// -*- coding: utf-8 -*-
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -91,8 +93,40 @@ public class RSA_PKCS1 {
         System.out.println("------------------------------------------------------------------");
         System.out.println("");
 
+        /* Bloc */
         byte[] bloc = fabriqueBloc(m);
-        System.out.println("BLOC : " + toHex(bloc));
+        System.out.println("BLOC                : " + toHex(bloc));
+
+        /* Masque */
+        byte[] graine = {
+                (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+        };
+        byte[] masque = mgf(graine, 107);
+        System.out.println("Masque (MGF)        : " + toHex(masque));
+
+        /* Bloc masqué */
+        byte[] bloc_masque = xor(bloc, masque);
+        System.out.println("Bloc masqué         : " + toHex(bloc_masque));
+
+        /* Masque de la graine */
+        byte[] masque_graine = mgf(bloc_masque, 20);
+        System.out.println("Masque de la graine : " + toHex(masque_graine));
+
+        /* Graine masquée */
+        byte[] graine_masquee = xor(graine, masque_graine);
+        System.out.println("Graine masquée      : " + toHex(graine_masquee));
+
+        byte[] message_bourre_OAEP_SHA1 = new byte[1 + graine_masquee.length + bloc_masque.length];
+        message_bourre_OAEP_SHA1[0] = 0x00;
+        System.arraycopy(graine_masquee, 0, message_bourre_OAEP_SHA1,1, graine_masquee.length);
+        System.arraycopy(bloc_masque, 0, message_bourre_OAEP_SHA1, graine_masquee.length + 1, bloc_masque.length);
+        System.out.println("Message avec bourrage OAEP SHA1   : " + toHex(message_bourre_OAEP_SHA1));
+        BigInteger x_OAEP_SHA1 = new BigInteger(1, message_bourre_OAEP_SHA1);          // Encodage du message
+        byte[] chiffre_OAEP_SHA1 = x_OAEP_SHA1.modPow(e, n).toByteArray();
+        System.out.println("Chiffré avec bourrage OAEP SHA1   : " + toHex(chiffre_OAEP_SHA1));
+        writeBytesToFile(chiffre_OAEP_SHA1, "./src/PKCS1/message_chiffre_OAEP_SHA1.bin");
+
     }
     
     public static String toHex(byte[] données) {
@@ -156,7 +190,7 @@ public class RSA_PKCS1 {
     }
 
     public static byte[] fabriqueBloc(byte[] m) {
-        byte[] sha1 = sha1();
+        byte[] sha1 = sha1("".getBytes());
         int nbOctetsNuls = 107 - (sha1.length + m.length + 1); // Calcul de la suite d'octets nuls (PS)
         byte[] ps = new byte[nbOctetsNuls];
         for (int i = 0; i < nbOctetsNuls; i++) {
@@ -169,15 +203,54 @@ public class RSA_PKCS1 {
         return bytesConcat(tmp2, m);
     }
 
-    public static byte[] sha1() {
+    public static byte[] sha1(byte[] bytes) {
         MessageDigest msdDigest = null;
         try {
             msdDigest = MessageDigest.getInstance("SHA-1");
         } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
         }
-        msdDigest.update("".getBytes());
+        msdDigest.update(bytes);
         return msdDigest.digest();
+    }
+
+    public static byte[] mgf(byte[] g, int k) {
+        int l = k / 20; // Les résumés SHA-1 font 20 octets (160 bits)
+        byte[] res = new byte[k];
+        byte[] tmp = new byte[4];
+        for (int i = 0; i < l + 1; i++) {
+            tmp[3] = (byte) i;
+            byte[] sha1 = sha1(bytesConcat(g, tmp));
+            if (i * sha1.length + sha1.length <= k) {
+                System.arraycopy(sha1, 0, res, i * sha1.length, sha1.length);
+            } else {
+                System.arraycopy(sha1, 0, res, i * sha1.length, k % 20);
+            }
+        }
+        return res;
+    }
+
+    /*
+    Effectue l'opération xor entre deux tableaux d'octets de même taille
+    */
+    public static byte[] xor(byte[] op1, byte[] op2) {
+        byte[] res = new byte[op1.length];
+        if (op1.length == op2.length) {
+            for (int i = 0; i < op1.length; i++) {
+                res[i] = (byte) (op1[i] ^ op2[i]);
+            }
+        }
+        return res;
+    }
+
+    public static void writeBytesToFile(byte[] bytes, String output) {
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(output);
+            fos.write(bytes, 0, bytes.length);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
 }
